@@ -46,18 +46,10 @@
   });
   q('#dev-rotate').onclick=()=>{if(!selected)return;const id=selected.id;confirm('Перевыпустить API-ключ?','Старый ключ сразу перестанет работать. Новый ключ нужно установить на сервере вашего проекта.',async()=>{const data=await client.request(base(id)+'/rotate-key',{method:'POST'});await loadApps(id);q('#dev-confirm').close();showSecrets(data);});};
   q('#dev-revoke').onclick=()=>{if(!selected)return;const id=selected.id;confirm('Отозвать API-ключ?','Интеграция потеряет доступ к API до перевыпуска ключа. Ранее созданные счета останутся доступны для оплаты.',async()=>{await client.request(base(id)+'/revoke-key',{method:'POST'});await loadApps(id);});};
-  q('#dev-invoice-form').onsubmit=wrap(async()=>{
-    if(!selected)return;const id=selected.id,body={amount:q('#dev-amount').value.trim(),asset:'USDT',description:q('#dev-description').value.trim(),payload:q('#dev-payload').value,expiresIn:Number(q('#dev-ttl').value)};
-    const fingerprint=JSON.stringify([id,body]);if(invoicePending?.fingerprint!==fingerprint)invoicePending={fingerprint,key:crypto.randomUUID()};const key=invoicePending.key;
-    const button=q('#dev-invoice-form button');button.disabled=true;
-    try{const data=await client.request(base(id)+'/invoices',{method:'POST',headers:{'Idempotency-Key':key},body:JSON.stringify(body)});invoicePending=null;
-      q('#dev-invoice-result').innerHTML=`Счёт создан. <a href="${esc(data.telegramUrl||data.paymentUrl)}" target="_blank" rel="noopener">Ссылка для покупателя ↗</a><br><small>${esc(data.id)}</small>`;await loadInvoices();
-    }finally{button.disabled=false;}
-  });
   async function loadInvoices(append=false){
     if(!selected)return;const id=selected.id,data=await client.request(base(id)+'/invoices'+(append&&invoiceNext?'?before='+invoiceNext:''));if(selected?.id!==id)return;invoiceNext=data.next;
     const rows=data.items.map(invoice=>`<tr><td>${esc(invoice.amount)} USDT<small>${esc(invoice.description)}</small><small>${esc(invoice.id)}</small></td><td>${esc(statuses[invoice.status])}<small>${esc(new Date(invoice.createdAt).toLocaleString('ru-RU'))}</small></td><td><a href="#pay=${esc(invoice.id)}">Открыть счёт ↗</a>${invoice.status==='active'?`<button class="text-action" data-cancel="${esc(invoice.id)}">Отменить</button>`:''}</td></tr>`).join('');
-    if(append)q('#dev-invoices tbody').insertAdjacentHTML('beforeend',rows);else q('#dev-invoices').innerHTML=rows?'<table class="dev-invoice-table"><thead><tr><th>Счёт</th><th>Статус</th><th>Действия</th></tr></thead><tbody>'+rows+'</tbody></table>':'<p class="muted">Создайте первый счёт через форму или API.</p>';
+    if(append)q('#dev-invoices tbody').insertAdjacentHTML('beforeend',rows);else q('#dev-invoices').innerHTML=rows?'<table class="dev-invoice-table"><thead><tr><th>Счёт</th><th>Статус</th><th>Действия</th></tr></thead><tbody>'+rows+'</tbody></table>':'<p class="muted">Здесь появятся счета, выставленные вашим магазином через API.</p>';
     q('#dev-invoices-more').hidden=!invoiceNext;
     q('#dev-invoices').querySelectorAll('[data-cancel]').forEach(button=>button.onclick=()=>confirm('Отменить счёт?','Покупатель больше не сможет оплатить этот счёт.',async()=>{await client.request(base(id)+'/invoices/'+button.dataset.cancel+'/cancel',{method:'POST'});await loadInvoices();}));
   }

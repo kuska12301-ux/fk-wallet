@@ -12,7 +12,7 @@
   const panel = document.createElement('article');panel.className='api-card';panel.style.marginTop='24px';
   panel.innerHTML='<div class="section-head"><h2>Пополнения и выводы CryptoBot</h2><button id="crypto-refresh" type="button">Обновить</button></div><div id="crypto-jobs"><p class="muted">Войдите через Telegram.</p></div>';
   q('#transactions').after(panel);
-  const labels = {creating:'Создаём счёт',active:'Ожидает оплаты',pending:'Вывод обрабатывается',paid:'Зачислено',completed:'Выведено',failed:'Отклонено',expired:'Срок счёта истёк'};
+  const labels = {creating:'Готовим оплату',active:'Ожидает оплаты',pending:'Вывод обрабатывается',paid:'Зачислено',completed:'Выведено',failed:'Отклонено',expired:'Срок счёта истёк'};
   function safeUrl(value){try{const u=new URL(value);return u.protocol==='https:'&&u.hostname==='t.me'&&!u.username&&!u.password?u.href:null;}catch{return null;}}
   function link(url){const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener noreferrer';a.className='primary';a.textContent='Оплатить в CryptoBot';a.onclick=event=>{if(window.Telegram?.WebApp?.openTelegramLink){event.preventDefault();window.Telegram.WebApp.openTelegramLink(url);}};return a;}
   function show(job){
@@ -39,7 +39,7 @@
     q('#available').textContent=(window.FKWalletState?.balance||'0.000000')+' USDT';
     confirmLabel.hidden=mode!=='withdraw';q('#crypto-consent').required=mode==='withdraw';
     details.textContent=mode==='deposit'?'От 1 до 25 000 USDT. На баланс поступит сумма за вычетом комиссии Crypto Pay. Статус обновляется автоматически.':mode==='withdraw'?'От 1 до 25 000 USDT. Получатель — ваш Telegram ID. Перед выводом откройте @CryptoBot. При отказе резерв возвращается автоматически.':'Переводы между пользователями пока недоступны.';
-    submit.disabled=!ready||mode==='send';submit.textContent=!ready?'Crypto Pay недоступен':mode==='deposit'?'Создать счёт':'Подтвердить вывод';
+    submit.disabled=!ready||mode==='send';submit.textContent=!ready?'Crypto Pay недоступен':mode==='deposit'?'Перейти к оплате':'Подтвердить вывод';
     q('#modal').showModal();if(!q('#sum').disabled)q('#sum').focus();
   });
   form.onsubmit=async event=>{
@@ -59,7 +59,7 @@
   q('#modal').addEventListener('close',()=>{submit.hidden=false;});
   q('#crypto-refresh').onclick=()=>refresh();
   window.addEventListener('fk-session-ready',async()=>{
-    try{const status=await window.FKClient.request('/api/crypto/operations');ready=status.configured;if(ready){q('.notice span:last-child').textContent='CryptoBot подключён. Пополнение зачисляется после оплаты; вывод — на ваш аккаунт CryptoBot.';await refresh();}}catch{}
+    try{const status=await window.FKClient.request('/api/crypto/operations');ready=status.configured;if(ready){q('.notice span:last-child').textContent='CryptoBot подключён';await refresh();}}catch{}
   });
   setInterval(()=>{if(!document.hidden)refresh();},15000);
   window.addEventListener('focus',()=>refresh());

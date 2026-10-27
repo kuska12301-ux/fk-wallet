@@ -17,7 +17,7 @@
     q('#profile-name').textContent=me.user.firstName;q('#profile-status').textContent=me.user.username?'@'+me.user.username:'ID '+me.user.id;
     q('.demo-pill').textContent='Внутренний счёт';q('.asset-value p').textContent='Внутренний баланс';
     q('.status').textContent='● Сервер подключён';
-    q('.notice span:last-child').textContent=me.cryptoPayConfigured?'CryptoBot подключён. Пополнение зачисляется автоматически после оплаты.':'Вход через Telegram выполнен. Crypto Pay не настроен.';
+    q('.notice span:last-child').textContent=me.cryptoPayConfigured?'CryptoBot подключён':'Вход через Telegram выполнен. Crypto Pay не настроен.';
     q('#admin-nav').hidden=!me.isAdmin;q('#admin-content').hidden=!me.isAdmin;q('#admin-gate').hidden=me.isAdmin;
     if(!me.isAdmin)q('#admin-gate-text').textContent='Для вашего Telegram ID нет прав администратора.';
     q('#history-more').hidden=!historyNext;
