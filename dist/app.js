@@ -11,10 +11,10 @@ function render() {
   $('#balance').innerHTML=hidden?'••••••':Number(parts[0]).toLocaleString('ru-RU')+'<span>,'+fraction+' <small>USDT</small></span>';
   $('#asset-balance').textContent=hidden?'••••••':formatted+' USDT';
   const esc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const row=entry=>'<div class="row"><div class="row-icon">'+(['admin_credit','invoice_credit'].includes(entry.kind)?'↓':'↑')+'</div><div><strong>'+({admin_credit:'Начисление администратором',admin_debit:'Снятие администратором',invoice_credit:'Входящая оплата',invoice_debit:'Оплата счёта'}[entry.kind]||'Операция')+'</strong><p>'+esc(new Date(entry.createdAt).toLocaleString('ru-RU'))+' · '+esc(entry.reason)+'</p></div><div class="row-amount"><strong>'+esc(entry.amount)+' USDT</strong><p>Выполнено</p></div></div>';
+  const row=entry=>'<div class="row"><div class="row-icon">'+(['admin_credit','invoice_credit','crypto_deposit','crypto_refund'].includes(entry.kind)?'↓':'↑')+'</div><div><strong>'+({admin_credit:'Начисление администратором',admin_debit:'Снятие администратором',invoice_credit:'Входящая оплата',invoice_debit:'Оплата счёта',crypto_deposit:'Пополнение CryptoBot',crypto_withdraw:'Вывод CryptoBot',crypto_refund:'Возврат вывода'}[entry.kind]||'Операция')+'</strong><p>'+esc(new Date(entry.createdAt).toLocaleString('ru-RU'))+' · '+esc(entry.reason)+'</p></div><div class="row-amount"><strong>'+esc(entry.amount)+' USDT</strong><p>Запись в журнале</p></div></div>';
   $('#recent').innerHTML=wallet.items.slice(0,3).map(row).join('')||emptyState;
   const filter=document.querySelector('[data-filter].selected')?.dataset.filter||'all';
-  $('#transactions').innerHTML=wallet.items.filter(entry=>filter==='all'||filter==='deposit'&&['admin_credit','invoice_credit'].includes(entry.kind)||filter==='withdraw'&&['admin_debit','invoice_debit'].includes(entry.kind)).map(row).join('')||emptyState;
+  $('#transactions').innerHTML=wallet.items.filter(entry=>filter==='all'||filter==='deposit'&&['admin_credit','invoice_credit','crypto_deposit','crypto_refund'].includes(entry.kind)||filter==='withdraw'&&['admin_debit','invoice_debit','crypto_withdraw'].includes(entry.kind)).map(row).join('')||emptyState;
 }
 window.addEventListener('fk-wallet-updated',render);
 

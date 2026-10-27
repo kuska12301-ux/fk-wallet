@@ -17,7 +17,7 @@
     q('#profile-name').textContent=me.user.firstName;q('#profile-status').textContent=me.user.username?'@'+me.user.username:'ID '+me.user.id;
     q('.demo-pill').textContent='Внутренний счёт';q('.asset-value p').textContent='Внутренний баланс';
     q('.status').textContent='● Сервер подключён';
-    q('.notice span:last-child').textContent='Вход через Telegram выполнен. Пополнение и вывод через Crypto Pay пока не подключены.';
+    q('.notice span:last-child').textContent=me.cryptoPayConfigured?'CryptoBot подключён. Пополнение зачисляется автоматически после оплаты.':'Вход через Telegram выполнен. Crypto Pay не настроен.';
     q('#admin-nav').hidden=!me.isAdmin;q('#admin-content').hidden=!me.isAdmin;q('#admin-gate').hidden=me.isAdmin;
     if(!me.isAdmin)q('#admin-gate-text').textContent='Для вашего Telegram ID нет прав администратора.';
     q('#history-more').hidden=!historyNext;
@@ -36,7 +36,7 @@
   async function operations(append=false) {
     const params=new URLSearchParams();const user=q('#operations-user').value.trim(),kind=q('#operations-kind').value;if(user)params.set('userId',user);if(kind)params.set('kind',kind);if(append&&operationsNext)params.set('before',operationsNext);
     const data=await api('/api/admin/operations?'+params);operationsNext=data.next;
-    const rows=data.items.map(e=>`<tr><td><b>#${e.id}</b><small>${esc(new Date(e.createdAt).toLocaleString('ru-RU'))}</small><small title="${esc(e.operationId)}">${esc(e.operationId.slice(0,8))}</small></td><td>${e.username?'@'+esc(e.username):'—'}<small>ID ${esc(e.userId)}</small></td><td><span class="${['admin_credit','invoice_credit'].includes(e.kind)?'positive':'debit-text'}">${['admin_credit','invoice_credit'].includes(e.kind)?'+':''}${esc(displayMoney(e.amount))}</span><small>${{admin_credit:'Начисление',admin_debit:'Снятие',invoice_credit:'Входящая оплата',invoice_debit:'Оплата счёта'}[e.kind]}</small></td><td>${esc(displayMoney(e.balanceAfter))}<small>USDT после операции</small></td><td>${esc(e.reason)}<small>Автор: ${esc(e.actorId)}</small></td></tr>`).join('');
+    const rows=data.items.map(e=>`<tr><td><b>#${e.id}</b><small>${esc(new Date(e.createdAt).toLocaleString('ru-RU'))}</small><small title="${esc(e.operationId)}">${esc(e.operationId.slice(0,8))}</small></td><td>${e.username?'@'+esc(e.username):'—'}<small>ID ${esc(e.userId)}</small></td><td><span class="${['admin_credit','invoice_credit','crypto_deposit','crypto_refund'].includes(e.kind)?'positive':'debit-text'}">${['admin_credit','invoice_credit','crypto_deposit','crypto_refund'].includes(e.kind)?'+':''}${esc(displayMoney(e.amount))}</span><small>${{admin_credit:'Начисление',admin_debit:'Снятие',invoice_credit:'Входящая оплата',invoice_debit:'Оплата счёта',crypto_deposit:'Пополнение CryptoBot',crypto_withdraw:'Вывод CryptoBot',crypto_refund:'Возврат вывода'}[e.kind]}</small></td><td>${esc(displayMoney(e.balanceAfter))}<small>USDT после операции</small></td><td>${esc(e.reason)}<small>Автор: ${esc(e.actorId)}</small></td></tr>`).join('');
     if(append)q('#admin-operations tbody').insertAdjacentHTML('beforeend',rows);else q('#admin-operations').innerHTML=data.items.length?'<table><thead><tr><th>Операция</th><th>Пользователь</th><th>Сумма · USDT</th><th>Баланс после</th><th>Причина / автор</th></tr></thead><tbody>'+rows+'</tbody></table>':'<p class="muted">Операций пока нет.</p>';
     q('#operations-more').hidden=!operationsNext;
   }
