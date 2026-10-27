@@ -1,0 +1,12 @@
+{
+  "name": "fk-wallet",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "start": "node --env-file=.env server/index.mjs",
+    "test": "node --test server/*.test.mjs",
+    "bot:setup": "node --env-file=.env server/setup-bot.mjs"
+  }
+}
