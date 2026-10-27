@@ -1,0 +1,6 @@
+.git
+.openai
+.env
+data
+node_modules
+*.sqlite*

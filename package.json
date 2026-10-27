@@ -5,8 +5,8 @@
   "type": "module",
   "engines": { "node": ">=24.0.0" },
   "scripts": {
-    "start": "node --env-file=.env server/index.mjs",
+    "start": "node --env-file-if-exists=.env server/index.mjs",
     "test": "node --test server/*.test.mjs",
-    "bot:setup": "node --env-file=.env server/setup-bot.mjs"
+    "bot:setup": "node --env-file-if-exists=.env server/setup-bot.mjs"
   }
 }
