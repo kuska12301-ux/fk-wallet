@@ -1,0 +1,1 @@
+# Python companion uses the standard library only. No pip dependencies.
