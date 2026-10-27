@@ -7,11 +7,14 @@ import { HttpError, validateTelegram, digest } from './auth.mjs';
 import { WalletStore } from './store.mjs';
 import { MerchantService } from './merchant.mjs';
 import { WebhookWorker } from './webhooks.mjs';
+import { CryptoPayService } from './crypto-pay.mjs';
 
 const staticRoot=fileURLToPath(new URL('../dist/',import.meta.url));
 export function createWalletServer(config) {
   const store=new WalletStore(config.dbPath);
   const merchant=new MerchantService(store,config);
+  const cryptoPay=new CryptoPayService(store,config);
+  cryptoPay.start();
   const worker=new WebhookWorker(merchant);
   worker.start();
   const rate=new Map();
@@ -76,7 +79,13 @@ export function createWalletServer(config) {
       }
       const isAdmin=config.adminIds.has(session.user_id);
       if(url.pathname.startsWith('/api/admin/')&&!isAdmin) throw new HttpError(403,'Доступ только для администратора.');
-      if(req.method==='GET'&&url.pathname==='/api/me') return send(200,{user:store.user(session.user_id),isAdmin,csrf:session.csrf});
+      if(req.method==='GET'&&url.pathname==='/api/me') return send(200,{user:store.user(session.user_id),isAdmin,csrf:session.csrf,cryptoPayConfigured:!!cryptoPay.client});
+      if(req.method==='GET'&&url.pathname==='/api/crypto/operations')return send(200,cryptoPay.list(session.user_id));
+      if(req.method==='POST'&&['/api/crypto/deposits','/api/crypto/withdrawals'].includes(url.pathname)) {
+        const body=await readJson(req),kind=url.pathname.endsWith('/deposits')?'deposit':'withdraw';
+        if(kind==='withdraw'&&body.confirm!==true)throw new HttpError(400,'Подтвердите вывод на свой аккаунт CryptoBot.');
+        return send(202,await cryptoPay.create(session.user_id,kind,body,req.headers['idempotency-key']));
+      }
       const payment=/^\/api\/invoices\/([a-f0-9-]{36})\/pay$/.exec(url.pathname);
       if(req.method==='POST'&&payment)return send(200,merchant.payInvoice(session.user_id,payment[1],await readJson(req),req.headers['idempotency-key']));
       if(req.method==='GET'&&url.pathname==='/api/developer/apps')return send(200,merchant.listApps(session.user_id));
@@ -106,7 +115,7 @@ export function createWalletServer(config) {
       }
       if(req.method==='GET'&&url.pathname==='/api/admin/operations') {
         const userId=url.searchParams.get('userId')||null,kind=url.searchParams.get('kind')||null;
-        if((userId&&!/^[1-9]\d{0,15}$/.test(userId))||(kind&&!['admin_credit','admin_debit','invoice_credit','invoice_debit'].includes(kind))) throw new HttpError(400,'Некорректный фильтр операций.');
+        if((userId&&!/^[1-9]\d{0,15}$/.test(userId))||(kind&&!['admin_credit','admin_debit','invoice_credit','invoice_debit','crypto_deposit','crypto_withdraw','crypto_refund'].includes(kind))) throw new HttpError(400,'Некорректный фильтр операций.');
         return send(200,store.entries({userId,kind,before:cursor(url)}));
       }
       if(req.method==='POST'&&url.pathname==='/api/admin/adjustments') return send(200,store.adjust(session.user_id,await readJson(req),req.headers['idempotency-key']));
@@ -118,8 +127,8 @@ export function createWalletServer(config) {
     }
   });
   app.requestTimeout=15000;app.headersTimeout=10000;
-  app.on('close',()=>worker.stop().finally(()=>store.close()));
-  return {app,store,merchant,worker};
+  app.on('close',()=>Promise.all([worker.stop(),cryptoPay.stop()]).finally(()=>store.close()));
+  return {app,store,merchant,worker,cryptoPay};
 }
 function cursor(url) {
   const raw=url.searchParams.get('before');

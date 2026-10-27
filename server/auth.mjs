@@ -35,5 +35,5 @@ export function readConfig(env = process.env) {
   if(env.APP_ENCRYPTION_KEY&&!/^[a-f0-9]{64}$/i.test(env.APP_ENCRYPTION_KEY))throw new Error('APP_ENCRYPTION_KEY: 64 шестнадцатеричных символа (32 случайных байта).');
   const botUsername=(env.TELEGRAM_BOT_USERNAME||'').replace(/^@/,'');
   if(botUsername&&!/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(botUsername))throw new Error('Некорректный TELEGRAM_BOT_USERNAME.');
-  return { botToken:env.BOT_TOKEN, adminIds:new Set(admins), origin:url.origin, secure:url.protocol==='https:', host:env.HOST||'127.0.0.1', port:integer('PORT',3000,1,65535), dbPath:env.DB_PATH||'./data/fk-wallet.sqlite', authMaxAge:integer('AUTH_MAX_AGE_SECONDS',300,30,3600), sessionTtl:integer('SESSION_TTL_SECONDS',43200,300,86400),encryptionKey:env.APP_ENCRYPTION_KEY?Buffer.from(env.APP_ENCRYPTION_KEY,'hex'):null,botUsername };
+  return { cryptoPayToken:env.CRYPTO_PAY_TOKEN||null, botToken:env.BOT_TOKEN, adminIds:new Set(admins), origin:url.origin, secure:url.protocol==='https:', host:env.HOST||'127.0.0.1', port:integer('PORT',3000,1,65535), dbPath:env.DB_PATH||'./data/fk-wallet.sqlite', authMaxAge:integer('AUTH_MAX_AGE_SECONDS',300,30,3600), sessionTtl:integer('SESSION_TTL_SECONDS',43200,300,86400),encryptionKey:env.APP_ENCRYPTION_KEY?Buffer.from(env.APP_ENCRYPTION_KEY,'hex'):null,botUsername };
 }
