@@ -1,0 +1,28 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FK Pay · Документация</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="redesign.css"><link rel="stylesheet" href="developer.css"><link rel="stylesheet" href="docs.css"></head><body><main class="docs"><header><strong>FK Pay <span> / Документация</span></strong><a href="/#api">В кабинет ↗</a></header><p class="eyebrow">DEVELOPER API · V1</p><h1>Подключите оплату.</h1><p>Создайте приложение, сохраните ключи, выставьте счёт и отправьте покупателю ссылку. Оплата проходит с внутреннего USDT-баланса FK Wallet.</p><div class="api-card"><strong>Перед подключением</strong><p class="muted">Нужен работающий Node.js сервер FK Wallet. На статическом превью API недоступен. Crypto Pay и внешнее пополнение пока не подключены.</p></div><h2>1. Создайте счёт со своего сервера</h2><p>В архиве проекта есть SDK <code>sdk/fk-pay.mjs</code>. Ключ храните в окружении backend, не в браузере.</p><pre class="code-block">import { FKPay } from './sdk/fk-pay.mjs';
+
+const pay = new FKPay({
+  baseUrl: process.env.FK_PAY_BASE_URL,
+  apiKey: process.env.FK_PAY_API_KEY
+});
+
+// Сохраните UUID у заказа; используйте его при повторах.
+const key = FKPay.idempotencyKey();
+const invoice = await pay.createInvoice({
+  amount: '10.123456',
+  asset: 'USDT',
+  description: 'Заказ №123',
+  payload: 'order-123',
+  expiresIn: 3600
+}, key);
+
+console.log(invoice.telegramUrl || invoice.paymentUrl);</pre><p class="muted">Сумма — строка: 0.000001–1000000 USDT, до 6 знаков после точки. expiresIn: 60–86400 секунд. Повтор с тем же UUID возвращает тот же счёт; другие параметры с тем же UUID дают 409.</p><h2>2. Отправьте ссылку покупателю</h2><p><code>telegramUrl</code> открывает Main Mini App вашего бота. Задайте TELEGRAM_BOT_USERNAME, а в @BotFather — Main Mini App с адресом PUBLIC_URL. Покупатель входит через бота FK Wallet и подтверждает сумму.</p><p class="muted">Прямая paymentUrl позволяет посмотреть счёт, но для оплаты нужен Telegram-вход. Не открывайте FK Wallet через web_app-кнопку чужого бота: подпись будет от другого токена.</p><h2>3. Проверьте уведомление</h2><p>Проверяйте HMAC-подпись по исходным байтам тела и срок ±300 секунд. Затем запросите счёт через API и сопоставьте сумму, валюту, приложение и ID заказа.</p><pre class="code-block">import { verifyFKWebhook } from './sdk/fk-pay.mjs';
+
+const valid = verifyFKWebhook({
+  secret: process.env.FK_WEBHOOK_SECRET,
+  timestamp: req.headers['fk-timestamp'],
+  signature: req.headers['fk-signature'],
+  rawBody: bodyBuffer
+});
+
+// Не выдавайте товар без проверки valid и счёта через API.
+const invoice = await pay.getInvoice(invoiceId);</pre><p>Заголовки: <code>FK-Event-Id</code>, <code>FK-Timestamp</code>, <code>FK-Signature: sha256=…</code>. Событие: <code>invoice.paid</code>; счёт в <code>data.invoice</code>. Подпись: HMAC-SHA256(webhookSecret, timestamp + "." + rawBody).</p><p class="muted">Храните обработанные event ID в постоянной базе. Повторы возможны. Возвращайте 2xx после сохранения; до 8 попыток, без redirects. Webhook — только публичный HTTPS на порту 443.</p><h2>Методы API</h2><div class="table-wrap"><table><thead><tr><th>Метод</th><th>Назначение</th></tr></thead><tbody><tr><td>POST /v1/invoices</td><td>Счёт. UUID в Idempotency-Key.</td></tr><tr><td>GET /v1/invoices/:id</td><td>Статус своего счёта.</td></tr><tr><td>GET /v1/invoices</td><td>Список: status/before, 50 на страницу.</td></tr><tr><td>POST /v1/invoices/:id/cancel</td><td>Отмена неоплаченного счёта.</td></tr><tr><td>GET /v1/balance</td><td>Общий баланс кошелька владельца.</td></tr></tbody></table></div><p>Каждый запрос: <code>Authorization: Bearer fkw_…</code>. Ключ изолирует счета своего приложения и не списывает средства покупателя без подтверждения.</p><h2>Пример магазина</h2><p>В архиве: <code>examples/merchant-server.mjs</code> и <code>examples/.env.example</code>. Пример сохраняет заказ и UUID повтора в SQLite, проверяет подписи и подтверждает платёж через FK Pay. Добавьте свою авторизацию, каталог и очередь выдачи товаров перед публичным запуском.</p><p class="muted">Полная спецификация и коды ошибок — API.md в архиве Node.js проекта.</p><footer>FK Wallet · Developer API v1</footer></main></body></html>
