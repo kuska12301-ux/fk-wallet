@@ -26,7 +26,7 @@ export function createWalletServer(config) {
       const url=new URL(req.url,config.origin);
       if(!url.pathname.startsWith('/api/')&&!url.pathname.startsWith('/v1/')) {
         if(!['GET','HEAD'].includes(req.method)) throw new HttpError(405,'Метод не поддерживается.');
-        const relative=decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname);
+        const relative=decodeURIComponent(['/', '/mini-app'].includes(url.pathname)?'/index.html':url.pathname);
         const file=resolve(staticRoot,'.'+relative);
         if(!file.startsWith(resolve(staticRoot)+sep) || !['.html','.js','.css','.svg','.png','.jpg','.ico'].includes(extname(file))) throw new HttpError(404,'Не найдено.');
         let content;try{content=await readFile(file);}catch{throw new HttpError(404,'Не найдено.');}
