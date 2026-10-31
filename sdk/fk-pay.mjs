@@ -15,6 +15,9 @@ export class FKPay {
   getInvoice(id){return this.request('/v1/invoices/'+encodeURIComponent(id));}
   listInvoices({before,status}={}){const query=new URLSearchParams();if(before)query.set('before',before);if(status)query.set('status',status);return this.request('/v1/invoices?'+query);}
   cancelInvoice(id){return this.request('/v1/invoices/'+encodeURIComponent(id)+'/cancel',{method:'POST'});}
+  createPayout(payout,idempotencyKey){if(!idempotencyKey)throw new Error('Pass a stable UUID idempotency key for this payout');return this.request('/v1/payouts',{method:'POST',body:payout,key:idempotencyKey});}
+  getPayout(id){return this.request('/v1/payouts/'+encodeURIComponent(id));}
+  listPayouts({before}={}){const query=new URLSearchParams();if(before)query.set('before',before);return this.request('/v1/payouts?'+query);}
   getBalance(){return this.request('/v1/balance');}
   static idempotencyKey(){return randomUUID();}
 }
