@@ -13,10 +13,10 @@ export class MerchantService {
   }
   migrate(){
     const sql=this.db.prepare("SELECT sql FROM sqlite_schema WHERE name='entries'").get().sql;
-    if(!sql.includes('invoice_debit'))this.store.transaction(()=>{
+    if(!sql.includes('invoice_debit')||!sql.includes('payout_debit'))this.store.transaction(()=>{
       this.db.exec(`DROP TRIGGER IF EXISTS entries_no_update; DROP TRIGGER IF EXISTS entries_no_delete;
       ALTER TABLE entries RENAME TO entries_legacy;
-      CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT, operation_id TEXT NOT NULL REFERENCES operations(id), user_id TEXT NOT NULL REFERENCES users(id), actor_id TEXT NOT NULL REFERENCES users(id), kind TEXT NOT NULL CHECK(kind IN ('admin_credit','admin_debit','invoice_credit','invoice_debit')), amount INTEGER NOT NULL CHECK(amount!=0), balance_after INTEGER NOT NULL CHECK(balance_after>=0), reason TEXT NOT NULL, created_at TEXT NOT NULL) STRICT;
+      CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT, operation_id TEXT NOT NULL REFERENCES operations(id), user_id TEXT NOT NULL REFERENCES users(id), actor_id TEXT NOT NULL REFERENCES users(id), kind TEXT NOT NULL CHECK(kind IN ('admin_credit','admin_debit','invoice_credit','invoice_debit','payout_credit','payout_debit','crypto_deposit','crypto_withdraw','crypto_refund')), amount INTEGER NOT NULL CHECK(amount!=0), balance_after INTEGER NOT NULL CHECK(balance_after>=0), reason TEXT NOT NULL, created_at TEXT NOT NULL) STRICT;
       INSERT INTO entries SELECT * FROM entries_legacy; DROP TABLE entries_legacy;
       CREATE INDEX entry_user ON entries(user_id,id DESC);
       CREATE TRIGGER entries_no_update BEFORE UPDATE ON entries BEGIN SELECT RAISE(ABORT,'Ledger entries cannot be edited'); END;
@@ -25,6 +25,8 @@ export class MerchantService {
     this.db.exec(`CREATE TABLE IF NOT EXISTS merchant_apps(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id),name TEXT NOT NULL,token_hash TEXT UNIQUE,token_prefix TEXT NOT NULL,webhook_url TEXT,webhook_secret TEXT NOT NULL,created_at TEXT NOT NULL) STRICT;
     CREATE TABLE IF NOT EXISTS invoices(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,app_id TEXT NOT NULL REFERENCES merchant_apps(id),amount INTEGER NOT NULL CHECK(amount>0),description TEXT NOT NULL,payload TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('active','paid','cancelled')),expires_at INTEGER NOT NULL,paid_by TEXT REFERENCES users(id),paid_at TEXT,operation_id TEXT REFERENCES operations(id),created_at TEXT NOT NULL,request_key TEXT NOT NULL,request_hash TEXT NOT NULL,UNIQUE(app_id,request_key)) STRICT;
     CREATE INDEX IF NOT EXISTS invoice_app ON invoices(app_id,seq DESC);
+    CREATE TABLE IF NOT EXISTS payouts(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,app_id TEXT NOT NULL REFERENCES merchant_apps(id),recipient_id TEXT NOT NULL REFERENCES users(id),amount INTEGER NOT NULL CHECK(amount>0),description TEXT NOT NULL,payload TEXT NOT NULL,operation_id TEXT UNIQUE NOT NULL REFERENCES operations(id),created_at TEXT NOT NULL,request_key TEXT NOT NULL,request_hash TEXT NOT NULL,UNIQUE(app_id,request_key)) STRICT;
+    CREATE INDEX IF NOT EXISTS payout_app ON payouts(app_id,seq DESC);
     CREATE TABLE IF NOT EXISTS webhook_jobs(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,app_id TEXT NOT NULL REFERENCES merchant_apps(id),invoice_id TEXT NOT NULL REFERENCES invoices(id),target_url TEXT NOT NULL,payload TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('pending','delivering','delivered','failed','cancelled')),attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL,lease_until INTEGER NOT NULL DEFAULT 0,last_error TEXT,created_at TEXT NOT NULL,delivered_at TEXT,UNIQUE(invoice_id)) STRICT;
     CREATE INDEX IF NOT EXISTS webhook_due ON webhook_jobs(state,next_attempt);
     CREATE TRIGGER IF NOT EXISTS invoices_fixed BEFORE UPDATE OF app_id,amount,description,payload,expires_at,created_at,request_key,request_hash ON invoices BEGIN SELECT RAISE(ABORT,'Invoice terms cannot be edited'); END;
@@ -96,6 +98,40 @@ export class MerchantService {
     return {items:rows.slice(0,50).map(row=>this.invoice(row)),next:rows.length>50?rows[49].seq:null};
   }
   cancelInvoice(app,id){return this.store.transaction(()=>{const row=this.findInvoice(id,app.id);if(row.status==='paid')throw new HttpError(409,'Оплаченный счёт нельзя отменить.');if(row.status==='active')this.db.prepare("UPDATE invoices SET status='cancelled' WHERE id=?").run(id);return this.invoice(this.findInvoice(id,app.id));});}
+  payout(row){return {id:row.id,appId:row.app_id,appName:row.app_name,asset:'USDT',amount:formatAmount(row.amount),recipient:{username:row.recipient_username},description:row.description,payload:row.payload,status:'completed',operationId:row.operation_id,createdAt:row.created_at};}
+  findPayout(id,appId=null){
+    if(!uuid(id))throw new HttpError(404,'Выплата не найдена.');
+    const row=this.db.prepare('SELECT p.*,a.name app_name,u.username recipient_username FROM payouts p JOIN merchant_apps a ON a.id=p.app_id JOIN users u ON u.id=p.recipient_id WHERE p.id=? AND (? IS NULL OR p.app_id=?)').get(id,appId,appId);
+    if(!row)throw new HttpError(404,'Выплата не найдена.');return row;
+  }
+  createPayout(app,body,key){
+    this.ready();if(!uuid(key))throw new HttpError(400,'Требуется UUID в Idempotency-Key.');
+    const amount=parseAmount(body.amount),raw=typeof body.recipient==='string'?body.recipient.trim().replace(/^@/,''):'';
+    if(!/^[A-Za-z0-9_]{5,32}$/.test(raw))throw new HttpError(400,'Укажите Telegram @username получателя.');
+    const description=body.description??'',payload=body.payload??'';
+    if(typeof description!=='string'||description.length>200||typeof payload!=='string'||Buffer.byteLength(payload)>2048)throw new HttpError(400,'Описание до 200 символов, payload — строка до 2048 байт.');
+    const recipient=this.db.prepare('SELECT * FROM users WHERE username=? COLLATE NOCASE').get(raw);
+    if(!recipient)throw new HttpError(404,'Пользователь не найден. Он должен сначала открыть FK Wallet через Telegram.');
+    if(recipient.id===app.owner_id)throw new HttpError(409,'Нельзя отправить выплату владельцу этого магазина.');
+    const fingerprint=digest(JSON.stringify([recipient.id,amount,description,payload]));
+    return this.store.transaction(()=>{
+      const prior=this.db.prepare('SELECT id,request_hash FROM payouts WHERE app_id=? AND request_key=?').get(app.id,key);
+      if(prior){if(prior.request_hash!==fingerprint)throw new HttpError(409,'Ключ использован для другой выплаты.');return this.payout(this.findPayout(prior.id,app.id));}
+      const sender=this.db.prepare('SELECT balance FROM users WHERE id=?').get(app.owner_id),receiver=this.db.prepare('SELECT balance FROM users WHERE id=?').get(recipient.id);
+      if(sender.balance<amount)throw new HttpError(409,'Недостаточно средств на балансе магазина.');
+      if(receiver.balance+amount>100000000000000)throw new HttpError(409,'Превышен лимит баланса получателя.');
+      const id=randomUUID(),operation=randomUUID(),createdAt=new Date().toISOString(),operationKey='payout:'+app.id+':'+key;
+      this.db.prepare('INSERT INTO operations VALUES(?,?,?,?,?)').run(operation,app.owner_id,operationKey,fingerprint,createdAt);
+      this.db.prepare('UPDATE users SET balance=balance-? WHERE id=?').run(amount,app.owner_id);
+      this.db.prepare('UPDATE users SET balance=balance+? WHERE id=?').run(amount,recipient.id);
+      const entry=this.db.prepare('INSERT INTO entries(operation_id,user_id,actor_id,kind,amount,balance_after,reason,created_at) VALUES(?,?,?,?,?,?,?,?)');
+      entry.run(operation,app.owner_id,app.owner_id,'payout_debit',-amount,sender.balance-amount,'Выплата магазина '+app.name+' пользователю @'+recipient.username,createdAt);
+      entry.run(operation,recipient.id,app.owner_id,'payout_credit',amount,receiver.balance+amount,'Выплата от магазина '+app.name,createdAt);
+      this.db.prepare('INSERT INTO payouts(id,app_id,recipient_id,amount,description,payload,operation_id,created_at,request_key,request_hash) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id,app.id,recipient.id,amount,description,payload,operation,createdAt,key,fingerprint);
+      return this.payout(this.findPayout(id,app.id));
+    });
+  }
+  listPayouts(appId,{before=Number.MAX_SAFE_INTEGER}={}){const rows=this.db.prepare('SELECT p.*,a.name app_name,u.username recipient_username FROM payouts p JOIN merchant_apps a ON a.id=p.app_id JOIN users u ON u.id=p.recipient_id WHERE p.app_id=? AND p.seq<? ORDER BY p.seq DESC LIMIT 51').all(appId,before);return {items:rows.slice(0,50).map(row=>this.payout(row)),next:rows.length>50?rows[49].seq:null};}
   payInvoice(payer,id,body,key){
     this.ready();if(!uuid(key))throw new HttpError(400,'Требуется UUID в Idempotency-Key.');const expected=parseAmount(body.amount);
     const hash=digest(JSON.stringify(['invoice_payment',id,expected]));

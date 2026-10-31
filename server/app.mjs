@@ -46,7 +46,11 @@ export function createWalletServer(config) {
       // Merchant API keys are server-to-server credentials, separate from Telegram sessions.
       if(url.pathname.startsWith('/v1/')){
         const client=merchant.authenticate(req.headers.authorization),match=/^\/v1\/invoices\/([a-f0-9-]{36})(\/cancel)?$/.exec(url.pathname);
+        const payout=/^\/v1\/payouts\/([a-f0-9-]{36})$/.exec(url.pathname);
         if(req.method==='GET'&&url.pathname==='/v1/balance')return send(200,{asset:'USDT',available:store.user(client.owner_id).balance,scope:'owner_wallet'});
+        if(req.method==='POST'&&url.pathname==='/v1/payouts')return send(201,merchant.createPayout(client,await readJson(req),req.headers['idempotency-key']));
+        if(req.method==='GET'&&url.pathname==='/v1/payouts')return send(200,merchant.listPayouts(client.id,{before:cursor(url)}));
+        if(payout&&req.method==='GET')return send(200,merchant.payout(merchant.findPayout(payout[1],client.id)));
         if(req.method==='POST'&&url.pathname==='/v1/invoices')return send(201,merchant.createInvoice(client,await readJson(req),req.headers['idempotency-key']));
         if(req.method==='GET'&&url.pathname==='/v1/invoices')return send(200,merchant.listInvoices(client.id,{before:cursor(url),status:url.searchParams.get('status')}));
         if(match&&req.method==='GET'&&!match[2])return send(200,merchant.invoice(merchant.findInvoice(match[1],client.id)));
@@ -115,7 +119,7 @@ export function createWalletServer(config) {
       }
       if(req.method==='GET'&&url.pathname==='/api/admin/operations') {
         const userId=url.searchParams.get('userId')||null,kind=url.searchParams.get('kind')||null;
-        if((userId&&!/^[1-9]\d{0,15}$/.test(userId))||(kind&&!['admin_credit','admin_debit','invoice_credit','invoice_debit','crypto_deposit','crypto_withdraw','crypto_refund'].includes(kind))) throw new HttpError(400,'Некорректный фильтр операций.');
+        if((userId&&!/^[1-9]\d{0,15}$/.test(userId))||(kind&&!['admin_credit','admin_debit','invoice_credit','invoice_debit','payout_credit','payout_debit','crypto_deposit','crypto_withdraw','crypto_refund'].includes(kind))) throw new HttpError(400,'Некорректный фильтр операций.');
         return send(200,store.entries({userId,kind,before:cursor(url)}));
       }
       if(req.method==='POST'&&url.pathname==='/api/admin/adjustments') return send(200,store.adjust(session.user_id,await readJson(req),req.headers['idempotency-key']));

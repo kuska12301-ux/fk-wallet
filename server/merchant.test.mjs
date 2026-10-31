@@ -59,6 +59,15 @@ test('Merchant API, payment ledger, key isolation, durable outbox and retry sign
   assert.equal((await pay(payer2)).status,409);assert.equal((await request('/api/invoices/'+first.id+'/pay',payer,{method:'POST',key:randomUUID(),body:{amount:first.amount}})).data.replayed,true);
   const paid=await sdk.getInvoice(first.id);assert.equal(paid.status,'paid');assert.equal(paid.payerId,'222');assert.equal(paid.payload,'order-123');assert.equal((await sdk.getBalance()).available,'7.123456');
   const pair=store.db.prepare('SELECT * FROM entries WHERE operation_id=? ORDER BY amount').all(paid.operationId);assert.equal(pair.length,2);assert.equal(pair[0].amount+pair[1].amount,0);assert.ok(pair.every(e=>e.actor_id==='222'));
+  const payoutKey=randomUUID(),payoutBody={recipient:'@user_222',amount:'2.000001',description:'Cashback',payload:'reward-123'};
+  const payout=await sdk.createPayout(payoutBody,payoutKey),payoutReplay=await sdk.createPayout(payoutBody,payoutKey);
+  assert.equal(payout.id,payoutReplay.id);assert.equal(payout.status,'completed');assert.equal(payout.recipient.username,'user_222');assert.equal((await sdk.getPayout(payout.id)).operationId,payout.operationId);
+  assert.equal((await sdk.listPayouts()).items.length,1);assert.equal(store.user('111').balance,'5.123455');assert.equal(store.user('222').balance,'14.876545');assert.equal(store.summary().totalBalance,'40.000000');
+  await assert.rejects(sdk.createPayout({...payoutBody,amount:'3'},payoutKey),error=>error.status===409);
+  assert.equal((await request('/v1/payouts/'+payout.id,null,{apiKey:shop2.apiKey})).status,404);
+  const payoutPair=store.db.prepare('SELECT * FROM entries WHERE operation_id=? ORDER BY amount').all(payout.operationId);assert.deepEqual(payoutPair.map(e=>e.kind),['payout_debit','payout_credit']);assert.equal(payoutPair[0].amount+payoutPair[1].amount,0);
+  await assert.rejects(sdk.createPayout({recipient:'@missing_user',amount:'1'},randomUUID()),error=>error.status===404);
+  await assert.rejects(sdk.createPayout({recipient:'@user_222',amount:'99'},randomUUID()),error=>error.status===409);
   await assert.rejects(sdk.cancelInvoice(first.id),error=>error.status===409);
   assert.throws(()=>store.db.prepare("UPDATE invoices SET status='active' WHERE id=?").run(first.id),/cannot be edited/);
   const cancelled=await sdk.createInvoice({amount:'1'},randomUUID());await sdk.cancelInvoice(cancelled.id);assert.equal((await request('/api/invoices/'+cancelled.id+'/pay',payer,{method:'POST',key:randomUUID(),body:{amount:'1'}})).status,409);

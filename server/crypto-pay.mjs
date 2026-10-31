@@ -43,10 +43,11 @@ export class CryptoPayService {
     this.migrate(); this.running = null; this.timer = null; this.stopped = false;
   }
   migrate() {
-    if (!this.db.prepare("SELECT sql FROM sqlite_schema WHERE name='entries'").get().sql.includes('crypto_deposit')) this.store.transaction(() => {
+    const entrySql=this.db.prepare("SELECT sql FROM sqlite_schema WHERE name='entries'").get().sql;
+    if (!entrySql.includes('crypto_deposit') || !entrySql.includes('payout_debit')) this.store.transaction(() => {
       this.db.exec(`DROP TRIGGER entries_no_update; DROP TRIGGER entries_no_delete;
         ALTER TABLE entries RENAME TO entries_crypto_legacy;
-        CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,operation_id TEXT NOT NULL REFERENCES operations(id),user_id TEXT NOT NULL REFERENCES users(id),actor_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('admin_credit','admin_debit','invoice_credit','invoice_debit','crypto_deposit','crypto_withdraw','crypto_refund')),amount INTEGER NOT NULL CHECK(amount!=0),balance_after INTEGER NOT NULL CHECK(balance_after>=0),reason TEXT NOT NULL,created_at TEXT NOT NULL) STRICT;
+        CREATE TABLE entries(id INTEGER PRIMARY KEY AUTOINCREMENT,operation_id TEXT NOT NULL REFERENCES operations(id),user_id TEXT NOT NULL REFERENCES users(id),actor_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('admin_credit','admin_debit','invoice_credit','invoice_debit','payout_credit','payout_debit','crypto_deposit','crypto_withdraw','crypto_refund')),amount INTEGER NOT NULL CHECK(amount!=0),balance_after INTEGER NOT NULL CHECK(balance_after>=0),reason TEXT NOT NULL,created_at TEXT NOT NULL) STRICT;
         INSERT INTO entries SELECT * FROM entries_crypto_legacy; DROP TABLE entries_crypto_legacy;
         CREATE INDEX entry_user ON entries(user_id,id DESC);
         CREATE TRIGGER entries_no_update BEFORE UPDATE ON entries BEGIN SELECT RAISE(ABORT,'Ledger entries cannot be edited'); END;
