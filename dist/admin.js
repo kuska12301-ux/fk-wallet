@@ -40,9 +40,16 @@
     if(append)q('#admin-operations tbody').insertAdjacentHTML('beforeend',rows);else q('#admin-operations').innerHTML=data.items.length?'<table><thead><tr><th>Операция</th><th>Пользователь</th><th>Сумма · USDT</th><th>Баланс после</th><th>Причина / автор</th></tr></thead><tbody>'+rows+'</tbody></table>':'<p class="muted">Операций пока нет.</p>';
     q('#operations-more').hidden=!operationsNext;
   }
-  async function refresh(){q('#admin-error').textContent='';await Promise.all([summary(),users(),operations()]);}
+  const withdrawalLabels={review:'Ожидает решения',pending:'Отправляется',completed:'Выполнен',failed:'Отклонён'};
+  async function withdrawals(){
+    const data=await api('/api/admin/withdrawals');q('#withdraw-mode').value=data.mode;
+    q('#withdrawal-requests').innerHTML=data.items.length?data.items.map(item=>`<div class="withdraw-request"><div><strong>${item.username?'@'+esc(item.username):esc(item.firstName)} · ${esc(displayMoney(item.amount))} USDT</strong><p>ID ${esc(item.userId)} · ${esc(new Date(item.createdAt).toLocaleString('ru-RU'))}</p><small>${esc(withdrawalLabels[item.status]||item.status)}${item.error?' · '+esc(item.error):''}</small></div>${item.status==='review'?`<div class="review-actions"><button type="button" data-withdraw-reject="${esc(item.id)}">Отклонить</button><button type="button" class="primary" data-withdraw-approve="${esc(item.id)}">Одобрить</button></div>`:''}</div>`).join(''):'<p class="muted">Заявок на вывод пока нет.</p>';
+    q('#withdrawal-requests').querySelectorAll('[data-withdraw-approve],[data-withdraw-reject]').forEach(button=>button.onclick=run(async()=>{button.disabled=true;const id=button.dataset.withdrawApprove||button.dataset.withdrawReject,action=button.dataset.withdrawApprove?'approve':'reject';await api(`/api/admin/withdrawals/${id}/${action}`,{method:'POST',body:'{}'});await Promise.all([withdrawals(),wallet(),operations()]);}));
+  }
+  async function refresh(){q('#admin-error').textContent='';await Promise.all([summary(),users(),operations(),withdrawals()]);}
   const run=fn=>async event=>{event?.preventDefault();try{await fn();}catch(error){q('#admin-error').textContent=error.message;}};
   q('#user-search-form').onsubmit=run(()=>users());q('#operations-filter').onsubmit=run(()=>operations());q('#refresh-admin').onclick=run(refresh);q('#users-more').onclick=run(()=>users(true));q('#operations-more').onclick=run(()=>operations(true));
+  q('#refresh-withdrawals').onclick=run(withdrawals);q('#withdraw-mode').onchange=run(async()=>{const mode=q('#withdraw-mode').value;const data=await api('/api/admin/withdrawals/mode',{method:'PUT',body:JSON.stringify({mode})});q('#withdraw-mode-status').textContent=data.mode==='auto'?'Автовывод включён. Ожидающие заявки переданы в обработку.':'Автовывод отключён. Новые выводы потребуют решения администратора.';await withdrawals();});
   q('#adjust-form').onsubmit=event=>{
     event.preventDefault();if(!session?.isAdmin)return;
     const body={userId:q('#adjust-user').value.trim(),direction:q('#adjust-direction').value,amount:q('#adjust-amount').value.trim(),reason:q('#adjust-reason').value.trim()};

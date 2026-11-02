@@ -12,7 +12,7 @@
   const panel = document.createElement('article');panel.className='api-card';panel.style.marginTop='24px';
   panel.innerHTML='<div class="section-head"><h2>Пополнения и выводы CryptoBot</h2><button id="crypto-refresh" type="button">Обновить</button></div><div id="crypto-jobs"><p class="muted">Войдите через Telegram.</p></div>';
   q('#transactions').after(panel);
-  const labels = {creating:'Готовим оплату',active:'Ожидает оплаты',pending:'Вывод обрабатывается',paid:'Зачислено',completed:'Выведено',failed:'Отклонено',expired:'Срок счёта истёк'};
+  const labels = {creating:'Готовим оплату',active:'Ожидает оплаты',review:'Заявка ожидает решения администратора',pending:'Вывод обрабатывается',paid:'Зачислено',completed:'Выведено',failed:'Отклонено',expired:'Срок счёта истёк'};
   function safeUrl(value){try{const u=new URL(value);return u.protocol==='https:'&&u.hostname==='t.me'&&!u.username&&!u.password?u.href:null;}catch{return null;}}
   function link(url){const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener noreferrer';a.className='primary';a.textContent='Оплатить в CryptoBot';a.onclick=event=>{if(window.Telegram?.WebApp?.openTelegramLink){event.preventDefault();window.Telegram.WebApp.openTelegramLink(url);}};return a;}
   function show(job){
@@ -33,7 +33,7 @@
   document.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>{
     mode=button.dataset.action;request=null;result.replaceChildren();form.reset();q('#error').textContent='';
     q('#modal-title').textContent={deposit:'Пополнить через CryptoBot',withdraw:'Вывести на CryptoBot',send:'Перевести USDT'}[mode];
-    q('#modal-description').textContent=mode==='deposit'?'Введите сумму и оплатите счёт в CryptoBot. Зачисление — автоматически.':mode==='withdraw'?'Вывод на ваш аккаунт CryptoBot. Обычно занимает до минуты.':'Переводы по username пока не подключены.';
+    q('#modal-description').textContent=mode==='deposit'?'Введите сумму и оплатите счёт в CryptoBot. Зачисление — автоматически.':mode==='withdraw'?'Вывод на ваш аккаунт CryptoBot. В режиме заявок потребуется подтверждение администратора.':'Переводы по username пока не подключены.';
     q('#modal-symbol').textContent=mode==='deposit'?'↓':'↑';q('#recipient-label').hidden=true;
     q('#sum').disabled=!ready||mode==='send';q('#sum').min='1';q('#sum').max='25000';q('#sum').step='0.000001';
     q('#available').textContent=(window.FKWalletState?.balance||'0.000000')+' USDT';
