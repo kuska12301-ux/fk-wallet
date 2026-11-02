@@ -60,11 +60,35 @@ export class CryptoPayService {
       UNIQUE(user_id,kind,request_key)) STRICT;
       CREATE INDEX IF NOT EXISTS crypto_due ON crypto_jobs(state,next_check);
       CREATE TRIGGER IF NOT EXISTS crypto_terms_fixed BEFORE UPDATE OF id,user_id,kind,amount,request_key,created_at ON crypto_jobs BEGIN SELECT RAISE(ABORT,'Crypto payment terms cannot be edited'); END;`);
+    const columns=this.db.prepare('PRAGMA table_info(crypto_jobs)').all().map(row=>row.name);
+    if(!columns.includes('approved')) this.db.exec('ALTER TABLE crypto_jobs ADD COLUMN approved INTEGER NOT NULL DEFAULT 1 CHECK(approved IN (0,1))');
+    this.db.exec(`CREATE TABLE IF NOT EXISTS crypto_settings(
+      id INTEGER PRIMARY KEY CHECK(id=1),withdraw_mode TEXT NOT NULL CHECK(withdraw_mode IN ('auto','manual')),updated_by TEXT,updated_at TEXT NOT NULL
+    ) STRICT;
+    INSERT OR IGNORE INTO crypto_settings VALUES(1,'auto',NULL,'${now()}');`);
   }
   ready() { if (!this.client) throw new HttpError(503, 'Crypto Pay не настроен на сервере.'); }
-  public(row) { return { id: row.id, kind: row.kind, amount: formatAmount(row.amount), creditedAmount: row.credited == null ? null : formatAmount(row.credited), asset: 'USDT', status: row.state, paymentUrl: row.payment_url, error: row.error, createdAt: row.created_at }; }
+  public(row) { return { id: row.id, kind: row.kind, amount: formatAmount(row.amount), creditedAmount: row.credited == null ? null : formatAmount(row.credited), asset: 'USDT', status: row.kind==='withdraw'&&row.state==='pending'&&!row.approved?'review':row.state, paymentUrl: row.payment_url, error: row.error, createdAt: row.created_at }; }
   job(id) { return this.db.prepare('SELECT * FROM crypto_jobs WHERE id=?').get(id); }
   list(user) { return { configured: !!this.client, items: this.db.prepare('SELECT * FROM crypto_jobs WHERE user_id=? ORDER BY seq DESC LIMIT 50').all(user).map(row => this.public(row)) }; }
+  withdrawalMode(){return this.db.prepare('SELECT withdraw_mode mode,updated_by updatedBy,updated_at updatedAt FROM crypto_settings WHERE id=1').get();}
+  setWithdrawalMode(actor,mode){
+    if(!['auto','manual'].includes(mode))throw new HttpError(400,'Режим должен быть auto или manual.');
+    this.db.prepare('UPDATE crypto_settings SET withdraw_mode=?,updated_by=?,updated_at=? WHERE id=1').run(mode,actor,now());
+    if(mode==='auto')this.db.prepare("UPDATE crypto_jobs SET approved=1,next_check=0,updated_at=? WHERE kind='withdraw' AND state='pending' AND approved=0").run(now());
+    return this.withdrawalMode();
+  }
+  adminWithdrawals(){return {mode:this.withdrawalMode().mode,items:this.db.prepare("SELECT j.*,u.username,u.first_name FROM crypto_jobs j JOIN users u ON u.id=j.user_id WHERE j.kind='withdraw' ORDER BY j.seq DESC LIMIT 100").all().map(row=>({...this.public(row),userId:row.user_id,username:row.username,firstName:row.first_name,approved:!!row.approved}))};}
+  reviewWithdrawal(actor,id,decision){
+    if(!uuid(id)||!['approve','reject'].includes(decision))throw new HttpError(400,'Некорректное решение по заявке.');
+    return this.store.transaction(()=>{
+      const row=this.job(id);if(!row||row.kind!=='withdraw')throw new HttpError(404,'Заявка не найдена.');
+      if(row.state!=='pending'||row.approved)throw new HttpError(409,'Заявка уже обработана.');
+      if(decision==='approve')this.db.prepare('UPDATE crypto_jobs SET approved=1,next_check=0,error=NULL,updated_at=? WHERE id=?').run(now(),id);
+      else {this.record(row,row.amount,'crypto_refund',':admin-reject');this.db.prepare("UPDATE crypto_jobs SET state='failed',error=?,updated_at=? WHERE id=?").run('Заявка отклонена администратором '+actor,now(),id);}
+      return this.public(this.job(id));
+    });
+  }
   record(row, delta, kind, suffix = '') {
     const key = 'crypto:' + row.id + suffix;
     if (this.db.prepare('SELECT id FROM operations WHERE actor_id=? AND request_key=?').get(row.user_id, key)) return;
@@ -88,7 +112,8 @@ export class CryptoPayService {
       if (kind === 'withdraw' && this.db.prepare("SELECT id FROM crypto_jobs WHERE user_id=? AND kind='withdraw' AND state='pending'").get(user)) throw new HttpError(409, 'Дождитесь результата предыдущего вывода.');
       if (this.db.prepare("SELECT count(*) n FROM crypto_jobs WHERE user_id=? AND state IN ('creating','active','pending')").get(user).n >= 10) throw new HttpError(409, 'Завершите предыдущие операции.');
       const id = randomUUID(), date = now();
-      this.db.prepare('INSERT INTO crypto_jobs(id,user_id,kind,amount,request_key,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').run(id,user,kind,amount,key,kind === 'deposit' ? 'creating' : 'pending',date,date);
+      const approved=kind==='withdraw'&&this.withdrawalMode().mode==='manual'?0:1;
+      this.db.prepare('INSERT INTO crypto_jobs(id,user_id,kind,amount,request_key,state,approved,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)').run(id,user,kind,amount,key,kind === 'deposit' ? 'creating' : 'pending',approved,date,date);
       const job = this.job(id);
       if (kind === 'withdraw') this.record(job, -amount, 'crypto_withdraw');
       return job;
@@ -173,7 +198,7 @@ export class CryptoPayService {
               }
               this.settleDeposit(this.job(row.id), invoice);
             }
-          } else await this.withdraw(row);
+          } else if(row.approved) await this.withdraw(row);
         } catch {
           this.db.prepare("UPDATE crypto_jobs SET error='Проверяем результат в Crypto Pay. Сумма сохранена в резерве; не создавайте повторный вывод.',updated_at=? WHERE id=? AND state='pending'").run(now(),row.id);
         }

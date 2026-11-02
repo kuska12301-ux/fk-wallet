@@ -8,6 +8,7 @@ import { WalletStore } from './store.mjs';
 import { MerchantService } from './merchant.mjs';
 import { WebhookWorker } from './webhooks.mjs';
 import { CryptoPayService } from './crypto-pay.mjs';
+import { TelegramBotService } from './telegram-bot.mjs';
 
 const staticRoot=fileURLToPath(new URL('../dist/',import.meta.url));
 export function createWalletServer(config) {
@@ -15,6 +16,8 @@ export function createWalletServer(config) {
   const merchant=new MerchantService(store,config);
   const cryptoPay=new CryptoPayService(store,config);
   cryptoPay.start();
+  const telegramBot=config.telegramPolling?new TelegramBotService(store,config):null;
+  telegramBot?.start();
   const worker=new WebhookWorker(merchant);
   worker.start();
   const rate=new Map();
@@ -111,6 +114,10 @@ export function createWalletServer(config) {
       }
       if(req.method==='GET'&&url.pathname==='/api/transactions') return send(200,store.entries({userId:session.user_id,before:cursor(url)}));
       if(req.method==='GET'&&url.pathname==='/api/admin/summary') return send(200,store.summary());
+      if(req.method==='GET'&&url.pathname==='/api/admin/withdrawals') return send(200,cryptoPay.adminWithdrawals());
+      if(req.method==='PUT'&&url.pathname==='/api/admin/withdrawals/mode') return send(200,cryptoPay.setWithdrawalMode(session.user_id,(await readJson(req)).mode));
+      const withdrawalReview=/^\/api\/admin\/withdrawals\/([a-f0-9-]{36})\/(approve|reject)$/.exec(url.pathname);
+      if(req.method==='POST'&&withdrawalReview)return send(200,cryptoPay.reviewWithdrawal(session.user_id,withdrawalReview[1],withdrawalReview[2]));
       if(req.method==='GET'&&url.pathname==='/api/admin/users') {
         const search=(url.searchParams.get('search')||'').trim().replace(/^@/,'');
         const before=url.searchParams.get('before');
@@ -131,8 +138,8 @@ export function createWalletServer(config) {
     }
   });
   app.requestTimeout=15000;app.headersTimeout=10000;
-  app.on('close',()=>Promise.all([worker.stop(),cryptoPay.stop()]).finally(()=>store.close()));
-  return {app,store,merchant,worker,cryptoPay};
+  app.on('close',()=>Promise.all([worker.stop(),cryptoPay.stop(),telegramBot?.stop()]).finally(()=>store.close()));
+  return {app,store,merchant,worker,cryptoPay,telegramBot};
 }
 function cursor(url) {
   const raw=url.searchParams.get('before');

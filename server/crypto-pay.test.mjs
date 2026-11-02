@@ -61,6 +61,18 @@ test('Crypto withdrawal reserves atomically, pays own user once and rejects dupl
   await service.cycle();assert.equal(transfers.length,1);
   await assert.rejects(()=>service.create('111','withdraw',{amount:'14'},randomUUID()),/Недостаточно/);
 });
+test('Manual withdrawal mode holds requests for admin approval or refunds rejection',async t=>{
+  const {store,service,transfers,due}=fixture(t);store.adjust('111',{userId:'111',direction:'credit',amount:'20',reason:'Fixture'},randomUUID());
+  service.setWithdrawalMode('999','manual');
+  const approved=await service.create('111','withdraw',{amount:'7'},randomUUID());
+  assert.equal(approved.status,'review');assert.equal(store.user('111').balance,'13.000000');
+  await service.cycle();assert.equal(transfers.length,0);
+  service.reviewWithdrawal('999',approved.id,'approve');due();await service.cycle();
+  assert.equal(transfers.length,1);assert.equal(service.job(approved.id).state,'completed');
+  const rejected=await service.create('111','withdraw',{amount:'3'},randomUUID());
+  service.reviewWithdrawal('999',rejected.id,'reject');assert.equal(store.user('111').balance,'13.000000');
+  assert.equal(service.job(rejected.id).state,'failed');assert.match(service.job(rejected.id).error,/администратором/);
+});
 test('Crypto definitively rejected withdrawal restores reserve once; ambiguous timeout never refunds',async t=>{
   const {store,service,client,due}=fixture(t);
   store.adjust('111',{userId:'111',direction:'credit',amount:'20',reason:'Fixture'},randomUUID());
